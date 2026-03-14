@@ -1,8 +1,10 @@
 package com.ctse.orderservice.service;
 
+import com.ctse.orderservice.event.OrderCreatedEvent;
 import com.ctse.orderservice.model.Order;
 import com.ctse.orderservice.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -13,6 +15,7 @@ import java.util.Optional;
 public class OrderService {
 
     private final OrderRepository orderRepository;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public List<Order> findAll() {
         return orderRepository.findAll();
@@ -27,7 +30,20 @@ public class OrderService {
     }
 
     public Order save(Order order) {
-        return orderRepository.save(order);
+        Order savedOrder = orderRepository.save(order);
+        
+        // Publish event to Kafka
+        OrderCreatedEvent event = new OrderCreatedEvent(
+            savedOrder.getId(),
+            savedOrder.getCustomerId(),
+            savedOrder.getItemId(),
+            savedOrder.getQuantity(),
+            savedOrder.getTotalPrice(),
+            savedOrder.getStatus()
+        );
+        kafkaTemplate.send("order-created-events", event);
+        
+        return savedOrder;
     }
 
     public Optional<Order> updateStatus(Long id, String status) {

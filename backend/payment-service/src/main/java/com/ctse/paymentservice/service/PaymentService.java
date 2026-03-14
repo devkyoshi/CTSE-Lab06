@@ -1,8 +1,11 @@
 package com.ctse.paymentservice.service;
 
+import com.ctse.paymentservice.event.OrderCreatedEvent;
 import com.ctse.paymentservice.model.Payment;
 import com.ctse.paymentservice.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -10,9 +13,25 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
+
+    @KafkaListener(topics = "order-created-events", groupId = "payment-group")
+    public void handleOrderCreatedEvent(OrderCreatedEvent event) {
+        log.info("Received OrderCreatedEvent for order id: {}", event.getOrderId());
+        
+        // Auto-create a pending payment when an order is created via Kafka
+        Payment payment = new Payment();
+        payment.setOrderId(event.getOrderId());
+        payment.setAmount(event.getTotalPrice());
+        payment.setPaymentMethod("SYSTEM_GENERATED");
+        payment.setStatus("PENDING");
+        
+        paymentRepository.save(payment);
+        log.info("Successfully created pending payment for order id: {}", event.getOrderId());
+    }
 
     public List<Payment> findAll() {
         return paymentRepository.findAll();

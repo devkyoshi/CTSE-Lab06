@@ -1,4 +1,4 @@
-package com.ctse.orderservice.event;
+package com.ctse.paymentservice.event;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
