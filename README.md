@@ -1,0 +1,367 @@
+# CTSE Lab 5 — Spring Boot Microservices
+
+A Spring Boot microservice architecture built with **Spring Cloud Gateway**, **Spring Data JPA**, and **H2 in-memory databases**, fully containerised with Docker Compose.
+
+---
+
+## Architecture
+
+```
+Client
+  │
+  ▼
+┌─────────────────────────┐
+│   API Gateway  :8080    │  ◄── Single entry point
+└────────────┬────────────┘
+             │ routes by path
+    ┌─────────┼─────────┐
+    ▼         ▼         ▼
+:8081      :8082      :8083
+item-     order-    payment-
+service   service   service
+  │          │          │
+ H2 DB     H2 DB     H2 DB
+(itemdb) (orderdb)(paymentdb)
+```
+
+| Service           | Port | Description                     |
+| ----------------- | ---- | ------------------------------- |
+| `api-gateway`     | 8080 | Routes all requests to services |
+| `item-service`    | 8081 | Manage inventory items          |
+| `order-service`   | 8082 | Create and track orders         |
+| `payment-service` | 8083 | Process and track payments      |
+
+---
+
+## Prerequisites
+
+| Tool           | Minimum Version | Purpose                  |
+| -------------- | --------------- | ------------------------ |
+| Java JDK       | 21              | Local development        |
+| Apache Maven   | 3.9+            | Building the project     |
+| Docker         | 24+             | Running containers       |
+| Docker Compose | 2.x             | Orchestrating containers |
+
+> **Note:** Java and Maven are only required for local (non-Docker) development. Docker alone is sufficient to run the full stack.
+
+---
+
+## Tech Stack
+
+- **Spring Boot** 3.2.3
+- **Spring Cloud Gateway** 2023.0.0
+- **Spring Data JPA** / Hibernate
+- **H2 In-Memory Database** (per-service, isolated)
+- **Lombok** 1.18.30
+- **Java** 21
+- **Docker** / Docker Compose (multi-stage builds, Alpine JRE runtime)
+
+---
+
+## Project Structure
+
+```
+ctse-lab5/
+├── docker-compose.yml              ← Orchestrates all services
+└── backend/
+    ├── pom.xml                     ← Parent POM (packaging=pom)
+    ├── item-service/
+    │   ├── Dockerfile
+    │   ├── pom.xml
+    │   └── src/main/java/com/ctse/itemservice/
+    │       ├── ItemServiceApplication.java
+    │       ├── model/Item.java
+    │       ├── repository/ItemRepository.java
+    │       ├── service/ItemService.java
+    │       └── controller/ItemController.java
+    ├── order-service/
+    │   ├── Dockerfile
+    │   ├── pom.xml
+    │   └── src/main/java/com/ctse/orderservice/
+    │       ├── OrderServiceApplication.java
+    │       ├── model/Order.java
+    │       ├── repository/OrderRepository.java
+    │       ├── service/OrderService.java
+    │       └── controller/OrderController.java
+    ├── payment-service/
+    │   ├── Dockerfile
+    │   ├── pom.xml
+    │   └── src/main/java/com/ctse/paymentservice/
+    │       ├── PaymentServiceApplication.java
+    │       ├── model/Payment.java
+    │       ├── repository/PaymentRepository.java
+    │       ├── service/PaymentService.java
+    │       └── controller/PaymentController.java
+    └── gateway/
+        ├── Dockerfile
+        ├── pom.xml
+        └── src/main/resources/application.yml
+```
+
+---
+
+## Running the Application
+
+### Option 1 — Docker Compose (Recommended)
+
+```bash
+# From project root
+cd ctse-lab5
+docker compose up --build
+```
+
+All four services will start. The gateway on **port 8080** is the only port you need to call.
+
+To stop:
+
+```bash
+docker compose down
+```
+
+### Option 2 — Local (Maven)
+
+Open **four separate terminals**, one per service:
+
+```bash
+# Terminal 1
+cd backend/item-service && mvn spring-boot:run
+
+# Terminal 2
+cd backend/order-service && mvn spring-boot:run
+
+# Terminal 3
+cd backend/payment-service && mvn spring-boot:run
+
+# Terminal 4 — start last
+cd backend/gateway && mvn spring-boot:run
+```
+
+### Build Only (skip tests)
+
+```bash
+cd backend
+mvn clean install -DskipTests
+```
+
+---
+
+## Configuration
+
+### Gateway (`backend/gateway/src/main/resources/application.yml`)
+
+| Property              | Default (local)         | Docker override               |
+| --------------------- | ----------------------- | ----------------------------- |
+| `server.port`         | `8080`                  | `8080`                        |
+| `ITEM_SERVICE_URL`    | `http://localhost:8081` | `http://item-service:8081`    |
+| `ORDER_SERVICE_URL`   | `http://localhost:8082` | `http://order-service:8082`   |
+| `PAYMENT_SERVICE_URL` | `http://localhost:8083` | `http://payment-service:8083` |
+
+Docker Compose injects the container hostnames via environment variables automatically.
+
+### Service Configuration
+
+Each service has its own `application.properties`:
+
+| Service         | Property File                                               |
+| --------------- | ----------------------------------------------------------- |
+| item-service    | `item-service/src/main/resources/application.properties`    |
+| order-service   | `order-service/src/main/resources/application.properties`   |
+| payment-service | `payment-service/src/main/resources/application.properties` |
+
+Key settings per service:
+
+```properties
+# H2 In-Memory Database (example for item-service)
+spring.datasource.url=jdbc:h2:mem:itemdb;DB_CLOSE_DELAY=-1
+spring.jpa.hibernate.ddl-auto=create-drop
+spring.h2.console.enabled=true
+spring.h2.console.path=/h2-console
+```
+
+---
+
+## API Endpoints
+
+> All requests below go through the **Gateway on port 8080**.  
+> Direct service ports (8081–8083) also work for local development.
+
+---
+
+### Item Service — `/api/items`
+
+Manages the product/item inventory.
+
+**Item model:**
+
+```json
+{
+  "id": 1,
+  "name": "Widget",
+  "description": "A sample widget",
+  "price": 9.99,
+  "quantity": 100
+}
+```
+
+| Method   | Endpoint          | Description                |
+| -------- | ----------------- | -------------------------- |
+| `GET`    | `/api/items`      | List all items             |
+| `GET`    | `/api/items/{id}` | Get a single item by ID    |
+| `POST`   | `/api/items`      | Create a new item          |
+| `PUT`    | `/api/items/{id}` | Replace an item completely |
+| `DELETE` | `/api/items/{id}` | Delete an item             |
+
+**Examples:**
+
+```bash
+# Create
+curl -X POST http://localhost:8080/api/items \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Widget","description":"A sample widget","price":9.99,"quantity":100}'
+
+# List all
+curl http://localhost:8080/api/items
+
+# Get one
+curl http://localhost:8080/api/items/1
+
+# Update
+curl -X PUT http://localhost:8080/api/items/1 \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Updated Widget","description":"Updated","price":14.99,"quantity":50}'
+
+# Delete
+curl -X DELETE http://localhost:8080/api/items/1
+```
+
+---
+
+### Order Service — `/api/orders`
+
+Creates and tracks customer orders. Orders default to `PENDING` status on creation.
+
+**Order model:**
+
+```json
+{
+  "id": 1,
+  "itemId": 1,
+  "customerId": "cust-001",
+  "quantity": 2,
+  "totalPrice": 19.98,
+  "status": "PENDING",
+  "createdAt": "2026-03-01T12:00:00"
+}
+```
+
+**Status values:** `PENDING` · `CONFIRMED` · `CANCELLED`
+
+| Method   | Endpoint                                   | Description                 |
+| -------- | ------------------------------------------ | --------------------------- |
+| `GET`    | `/api/orders`                              | List all orders             |
+| `GET`    | `/api/orders/{id}`                         | Get a single order by ID    |
+| `GET`    | `/api/orders/customer/{customerId}`        | List orders for a customer  |
+| `POST`   | `/api/orders`                              | Create a new order          |
+| `PUT`    | `/api/orders/{id}`                         | Replace an order completely |
+| `PATCH`  | `/api/orders/{id}/status?status=CONFIRMED` | Update order status only    |
+| `DELETE` | `/api/orders/{id}`                         | Delete an order             |
+
+**Examples:**
+
+```bash
+# Create an order
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{"itemId":1,"customerId":"cust-001","quantity":2,"totalPrice":19.98}'
+
+# Get orders for a customer
+curl http://localhost:8080/api/orders/customer/cust-001
+
+# Update status to CONFIRMED
+curl -X PATCH "http://localhost:8080/api/orders/1/status?status=CONFIRMED"
+```
+
+---
+
+### Payment Service — `/api/payments`
+
+Processes and tracks payments linked to orders. Payments default to `PENDING` status on creation.
+
+**Payment model:**
+
+```json
+{
+  "id": 1,
+  "orderId": 1,
+  "amount": 19.98,
+  "paymentMethod": "CREDIT_CARD",
+  "status": "PENDING",
+  "createdAt": "2026-03-01T12:00:00"
+}
+```
+
+**Status values:** `PENDING` · `COMPLETED` · `FAILED` · `REFUNDED`
+
+**Payment methods:** `CREDIT_CARD` · `DEBIT_CARD` · `PAYPAL` · `BANK_TRANSFER`
+
+| Method   | Endpoint                                     | Description                    |
+| -------- | -------------------------------------------- | ------------------------------ |
+| `GET`    | `/api/payments`                              | List all payments              |
+| `GET`    | `/api/payments/{id}`                         | Get a single payment by ID     |
+| `GET`    | `/api/payments/order/{orderId}`              | Get payment linked to an order |
+| `POST`   | `/api/payments`                              | Create a new payment           |
+| `PUT`    | `/api/payments/{id}`                         | Replace a payment completely   |
+| `PATCH`  | `/api/payments/{id}/status?status=COMPLETED` | Update payment status only     |
+| `DELETE` | `/api/payments/{id}`                         | Delete a payment               |
+
+**Examples:**
+
+```bash
+# Create a payment for order 1
+curl -X POST http://localhost:8080/api/payments \
+  -H "Content-Type: application/json" \
+  -d '{"orderId":1,"amount":19.98,"paymentMethod":"CREDIT_CARD"}'
+
+# Get payment by order ID
+curl http://localhost:8080/api/payments/order/1
+
+# Mark payment as completed
+curl -X PATCH "http://localhost:8080/api/payments/1/status?status=COMPLETED"
+```
+
+---
+
+## H2 Console (Local Development Only)
+
+Each service exposes the H2 web console at `/h2-console`. The console is **disabled in Docker** by default for security.
+
+| Service         | URL                              | JDBC URL                |
+| --------------- | -------------------------------- | ----------------------- |
+| item-service    | http://localhost:8081/h2-console | `jdbc:h2:mem:itemdb`    |
+| order-service   | http://localhost:8082/h2-console | `jdbc:h2:mem:orderdb`   |
+| payment-service | http://localhost:8083/h2-console | `jdbc:h2:mem:paymentdb` |
+
+**Credentials:** username `sa`, password _(leave blank)_
+
+---
+
+## Actuator / Health
+
+The gateway exposes Spring Boot Actuator endpoints:
+
+| Endpoint       | URL                                           |
+| -------------- | --------------------------------------------- |
+| Health         | http://localhost:8080/actuator/health         |
+| Info           | http://localhost:8080/actuator/info           |
+| Gateway Routes | http://localhost:8080/actuator/gateway/routes |
+
+---
+
+## HTTP Response Codes
+
+| Code             | Meaning                 |
+| ---------------- | ----------------------- |
+| `200 OK`         | Successful GET or PUT   |
+| `201 Created`    | Resource created (POST) |
+| `204 No Content` | Successful DELETE       |
+| `404 Not Found`  | Resource does not exist |
